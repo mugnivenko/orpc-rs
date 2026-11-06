@@ -106,7 +106,7 @@ use std::task::{Context, Poll};
 pin_project_lite::pin_project! {
     struct DeserializeStream<O> {
         #[pin]
-        inner: Pin<Box<dyn Stream<Item = Result<serde_json::Value, ClientError>> + Send>>,
+        inner: crate::link::ValueStream,
         _phantom: std::marker::PhantomData<O>,
     }
 }

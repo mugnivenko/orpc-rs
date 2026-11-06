@@ -6,6 +6,8 @@ use futures_core::Stream;
 
 use crate::envelope::RpcEnvelope;
 use crate::error::ClientError;
+use crate::link::ValueStream;
+use crate::bounds::{BoxStream, MaybeSend};
 
 /// Parsed SSE event.
 #[derive(Debug)]
@@ -53,8 +55,8 @@ fn parse_event_block(block: &str) -> Option<SseEvent> {
 /// - `event: done` → end the stream
 /// - Comments (`: ...`) → ignored (keep-alive)
 pub(crate) fn sse_to_values(
-    byte_stream: impl Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
-) -> Pin<Box<dyn Stream<Item = Result<serde_json::Value, ClientError>> + Send>> {
+    byte_stream: impl Stream<Item = Result<Bytes, reqwest::Error>> + MaybeSend + 'static,
+) -> ValueStream {
     Box::pin(SseValueStream {
         inner: Box::pin(byte_stream),
         buffer: String::new(),
@@ -64,7 +66,7 @@ pub(crate) fn sse_to_values(
 }
 
 struct SseValueStream {
-    inner: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
+    inner: BoxStream<Result<Bytes, reqwest::Error>>,
     buffer: String,
     done: bool,
     pending_values: Vec<Result<serde_json::Value, ClientError>>,
