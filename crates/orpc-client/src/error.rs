@@ -2,6 +2,12 @@ use std::fmt;
 
 use orpc::ORPCError;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub type TransportError = reqwest::Error;
+
+#[cfg(target_arch = "wasm32")]
+pub use crate::rpc_link::FetchError as TransportError;
+
 /// Unified error type for the oRPC client.
 ///
 /// Covers transport errors (network), wire protocol errors (bad JSON),
@@ -9,7 +15,7 @@ use orpc::ORPCError;
 #[derive(Debug)]
 pub enum ClientError {
     /// HTTP transport error (network, DNS, TLS, timeout).
-    Transport(reqwest::Error),
+    Transport(TransportError),
     /// Failed to serialize the request input.
     Serialize(serde_json::Error),
     /// Failed to deserialize the response body.
@@ -44,8 +50,8 @@ impl std::error::Error for ClientError {
     }
 }
 
-impl From<reqwest::Error> for ClientError {
-    fn from(err: reqwest::Error) -> Self {
+impl From<TransportError> for ClientError {
+    fn from(err: TransportError) -> Self {
         ClientError::Transport(err)
     }
 }

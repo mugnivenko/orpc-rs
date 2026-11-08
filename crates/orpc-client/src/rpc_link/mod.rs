@@ -1,7 +1,10 @@
-use crate::envelope::RpcEnvelope;
-use crate::error::ClientError;
-use crate::link::{Link, ValueStream};
-use crate::sse;
+#[cfg(target_arch = "wasm32")]
+mod fetch;
+#[cfg(not(target_arch = "wasm32"))]
+mod native;
+
+#[cfg(target_arch = "wasm32")]
+pub use fetch::FetchError;
 
 /// HTTP transport for the oRPC RPC protocol.
 ///
@@ -14,22 +17,23 @@ use crate::sse;
 /// let client = Client::with_link(link);
 /// ```
 pub struct RpcLink {
+    #[cfg(not(target_arch = "wasm32"))]
     http: reqwest::Client,
     base_url: String,
 }
 
 impl RpcLink {
     /// Create a new RPC link with the given base URL.
-    ///
-    /// Uses a default `reqwest::Client`.
     pub fn new(base_url: impl Into<String>) -> Self {
         RpcLink {
+            #[cfg(not(target_arch = "wasm32"))]
             http: reqwest::Client::new(),
             base_url: base_url.into(),
         }
     }
 
     /// Use a custom `reqwest::Client` (for proxy, TLS, auth, etc.).
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn with_client(mut self, client: reqwest::Client) -> Self {
         self.http = client;
         self
@@ -48,71 +52,6 @@ impl RpcLink {
         } else {
             serde_json::json!({ "json": input })
         }
-    }
-}
-
-impl Link for RpcLink {
-    async fn call(
-        &self,
-        path: &str,
-        input: serde_json::Value,
-    ) -> Result<serde_json::Value, ClientError> {
-        let url = self.build_url(path);
-        let body = Self::build_body(input);
-
-        let response = self
-            .http
-            .post(&url)
-            .header("content-type", "application/json")
-            .json(&body)
-            .send()
-            .await?;
-
-        let status = response.status();
-        let bytes = response.bytes().await?;
-
-        if status.is_success() {
-            let envelope: RpcEnvelope<serde_json::Value> =
-                serde_json::from_slice(&bytes).map_err(ClientError::Deserialize)?;
-            Ok(envelope.json)
-        } else {
-            let envelope: RpcEnvelope<orpc::ORPCError> =
-                serde_json::from_slice(&bytes).map_err(ClientError::Deserialize)?;
-            Err(ClientError::Rpc(envelope.json))
-        }
-    }
-
-    async fn subscribe(
-        &self,
-        path: &str,
-        input: serde_json::Value,
-        last_event_id: Option<u64>,
-    ) -> Result<ValueStream, ClientError> {
-        let url = self.build_url(path);
-        let body = Self::build_body(input);
-
-        let mut request = self
-            .http
-            .post(&url)
-            .header("content-type", "application/json")
-            .json(&body);
-
-        if let Some(id) = last_event_id {
-            request = request.header("last-event-id", id.to_string());
-        }
-
-        let response = request.send().await?;
-        let status = response.status();
-
-        if !status.is_success() {
-            let bytes = response.bytes().await?;
-            let envelope: RpcEnvelope<orpc::ORPCError> =
-                serde_json::from_slice(&bytes).map_err(ClientError::Deserialize)?;
-            return Err(ClientError::Rpc(envelope.json));
-        }
-
-        let byte_stream = response.bytes_stream();
-        Ok(sse::sse_to_values(byte_stream))
     }
 }
 
